@@ -2,7 +2,7 @@
 
 **Android AI edit studio · OpenCode client · Alight Motion XML bridge**
 
-**Source version: 0.2.3** — OpenCode model picker, explicit per-session model selection, Vision capability labels and quota-aware diagnostics.
+**Source version: 0.2.4** — OpenCode model picker, explicit per-session model selection, Vision capability labels and quota-aware diagnostics.
 
 MVS Animate is an Android Studio project for building music-synchronised edits from photos, videos, text and motion presets. The app connects to an OpenCode server instead of hard-coding one model provider. It uses local audio DSP to turn music into numeric timing features and can attach up to four selected images to a vision-capable OpenCode model.
 
@@ -181,3 +181,8 @@ scripts/                          Termux OpenCode start script
 This is a solid app foundation and interchange/AI workflow, not yet a full replacement for Alight Motion or a finished rendering engine. The following major systems remain future work: a real-time preview compositor, multi-track MP4 rendering with audio muxing, full Alight Motion effect/parameter registry, lossless unknown-node preservation, `.wj` reverse engineering from a lawful sample, reusable animation/shake pack import/export, downloaded-source asset ingestion and project autosave/version history.
 
 No generated APK has been verified in this environment. The first real Android compilation must run in GitHub Actions or Android Studio.
+
+
+### 0.2.4 parsing fix
+
+AI Studio no longer uses a regex to parse JSON fences. It extracts balanced JSON objects, validates the `cuts` schema, and shows a compact plan summary with individual cut cards. Review the plan and tap **Apply N cuts to timeline** to place the generated cuts, motion keyframes, and validated native effects into the project. When no source photos/videos are loaded, placeholder layers are created; import media first for the AI plan to attach animations to real footage.

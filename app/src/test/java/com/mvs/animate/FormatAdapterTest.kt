@@ -71,6 +71,31 @@ class FormatAdapterTest {
         assertEquals("com.alightcreative.effects.textprogress", cuts.first().textAnimation?.nativeEffects?.first()?.id)
     }
 
+    @Test fun planParserHandlesMarkdownProseAndBracesInsideStringsWithoutRegex() {
+        val response = """Here is the edit direction: use a {hard} cut and preserve quoted text.
+```json
+{"title":"Velocity {impact}","overview":"Fast montage","cuts":[{"atMs":0,"durationMs":1200,"visual":"A blade trail with {glow} and \"quotes\"","text":"GO","effect":"zoom_punch","animation":{"name":"Compound","tracks":[{"property":"scale","keyframes":[{"t":0,"v":0.8},{"t":0.5,"v":1.3},{"t":1,"v":1.0}]},{"property":"rotation","keyframes":[{"t":0,"v":-4},{"t":1,"v":0}]}]}}],"searchQueries":["anime blade impact"]}
+```
+Additional explanation after the JSON.
+"""
+        val cuts = PlanParser.parseCuts(response)
+        assertEquals(1, cuts.size)
+        assertEquals("A blade trail with {glow} and \"quotes\"", cuts.first().visual)
+        assertEquals(2, cuts.first().animation?.tracks?.size)
+        assertEquals(listOf("anime blade impact"), PlanParser.parseSearchQueries(response))
+        val summary = PlanParser.summary(response, cuts)
+        assertTrue(summary.contains("Velocity {impact}"))
+        assertTrue(summary.contains("1 cut(s)"))
+        assertTrue(!summary.contains("keyframes"))
+    }
+
+    @Test fun planParserAcceptsUnfencedJson() {
+        val response = """{"title":"Simple edit","cuts":[{"atMs":100,"durationMs":800,"visual":"Close-up","text":"RISE","effect":"fade_in"}]}"""
+        val cuts = PlanParser.parseCuts(response)
+        assertEquals(1, cuts.size)
+        assertEquals(100L, cuts.single().atMs)
+    }
+
     @Test fun subtitleImporterCreatesTimedTextLayers() {
         val cues = SubtitleImporter.parse("""1
 00:00:01,200 --> 00:00:02,800

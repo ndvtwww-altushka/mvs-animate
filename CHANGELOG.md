@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.4 — 2026-11-13
+
+- Replaced Android-incompatible Markdown JSON-fence regex with a balanced-brace JSON scanner that handles fenced and unfenced model responses, escaped quotes, and braces inside strings.
+- Fixed plan parsing so an unrelated JSON object in the model preamble does not prevent a later `cuts` object from being parsed.
+- AI Studio now displays a concise plan summary and cut cards instead of dumping the entire raw model response/JSON into the screen.
+- The pipeline marks Plan as failed with a useful message when a response contains no valid structured cuts.
+- The timeline action now clearly says how many cuts will be applied and explains how source media are reused.
+- Added parser regression tests for Markdown-wrapped JSON, braces/escaped quotes inside strings, search queries, and unfenced JSON.
+
 ## 0.2.0
 
 - Added AI-authored visual and caption motion recipes with independent transform tracks and normalized keyframes.

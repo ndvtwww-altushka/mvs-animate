@@ -463,15 +463,24 @@ private fun MvsAnimateApp() {
                                 val started = System.currentTimeMillis()
                                 val response = client.generateEditPlan(prompt, openCodeAgent, imageAttachments, chosenModel)
                                 val elapsed = System.currentTimeMillis() - started
-                                planText = response.text
-                                planCuts = PlanParser.parseCuts(response.text)
+                                val parsedCuts = PlanParser.parseCuts(response.text)
+                                planCuts = parsedCuts
                                 planQueries = PlanParser.parseSearchQueries(response.text)
-                                val motionTracks = planCuts.sumOf { it.animation?.tracks?.size ?: 0 } + planCuts.sumOf { it.textAnimation?.tracks?.size ?: 0 }
-                                val motionKeys = planCuts.sumOf { cut -> (cut.animation?.tracks.orEmpty() + cut.textAnimation?.tracks.orEmpty()).sumOf { it.keyframes.size } }
-                                val nativeEffectCount = planCuts.sumOf { (it.animation?.nativeEffects?.size ?: 0) + (it.textAnimation?.nativeEffects?.size ?: 0) }
-                                updateStage("Motion authoring", StageStatus.DONE, "$motionTracks transform track(s) · $motionKeys keyframe(s) · $nativeEffectCount native effect(s) validated")
+                                planText = PlanParser.summary(response.text, parsedCuts)
+                                val motionTracks = parsedCuts.sumOf { it.animation?.tracks?.size ?: 0 } + parsedCuts.sumOf { it.textAnimation?.tracks?.size ?: 0 }
+                                val motionKeys = parsedCuts.sumOf { cut -> (cut.animation?.tracks.orEmpty() + cut.textAnimation?.tracks.orEmpty()).sumOf { it.keyframes.size } }
+                                val nativeEffectCount = parsedCuts.sumOf { (it.animation?.nativeEffects?.size ?: 0) + (it.textAnimation?.nativeEffects?.size ?: 0) }
+                                updateStage("Motion authoring", if (parsedCuts.isNotEmpty()) StageStatus.DONE else StageStatus.FAILED,
+                                    "$motionTracks transform track(s) · $motionKeys keyframe(s) · $nativeEffectCount native effect(s) validated")
                                 updateStage("Model request", StageStatus.DONE, "Response received in ${elapsed} ms · session ${response.sessionId.take(10)}", elapsed)
-                                updateStage("Plan", StageStatus.DONE, "Text plan received; review before applying to timeline")
+                                if (parsedCuts.isNotEmpty()) {
+                                    updateStage("Plan", StageStatus.DONE, "${parsedCuts.size} structured cut(s) parsed · ready to apply to timeline")
+                                    log("Parsed ${parsedCuts.size} cuts, $motionTracks motion tracks and $nativeEffectCount native effects")
+                                } else {
+                                    updateStage("Plan", StageStatus.FAILED, "The model answered, but no valid cuts JSON was found")
+                                    errorMessage = "The AI answered, but MVS Animate could not find a valid edit plan in the response. Try Generate edit again. The raw model output was kept out of the screen to avoid dumping JSON."
+                                    log("OpenCode response received, but structured plan parsing returned zero cuts")
+                                }
                                 log("OpenCode responded (${elapsed} ms, HTTP ${response.httpCode})")
                             } catch (e: Exception) {
                                 updateStage("Pipeline", StageStatus.FAILED, e.message ?: "Generation failed")
@@ -840,10 +849,16 @@ private fun AiStudioScreen(
                         }
                         Text("${planCuts.size} cuts · $tracks AI motion tracks · $keyframes keyframes", color = Mint, style = MaterialTheme.typography.labelSmall)
                         planCuts.forEachIndexed { index, cut ->
-                            cut.animation?.let { recipe -> Text("${index + 1}. Visual: ${recipe.name} · ${recipe.effects.joinToString()} · ${recipe.tracks.joinToString { it.property }}", color = Accent, style = MaterialTheme.typography.labelSmall) }
-                            cut.textAnimation?.let { recipe -> Text("${index + 1}. Caption: ${recipe.name} · ${recipe.tracks.joinToString { it.property }}", color = Mint, style = MaterialTheme.typography.labelSmall) }
+                            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Panel).padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("CUT ${index + 1} · ${formatMs(cut.atMs)} · ${formatMs(cut.durationMs)}", color = Accent, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                Text(cut.visual, style = MaterialTheme.typography.bodySmall)
+                                if (cut.text.isNotBlank()) Text("Text: ${cut.text}", color = Mint, style = MaterialTheme.typography.labelSmall)
+                                cut.animation?.let { recipe -> Text("Motion: ${recipe.name} · ${recipe.tracks.size} tracks · ${recipe.nativeEffects.size} native effects", color = Accent, style = MaterialTheme.typography.labelSmall) }
+                                cut.textAnimation?.let { recipe -> Text("Text motion: ${recipe.name}", color = Mint, style = MaterialTheme.typography.labelSmall) }
+                            }
                         }
-                        Button(onClick = onApplyPlan, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.CheckCircle, null); Spacer(Modifier.width(6.dp)); Text("Apply plan to timeline") }
+                        Text("Review the cuts, then apply them. Existing photos/videos are reused in timeline order; without source media, placeholder layers are created.", color = Muted, style = MaterialTheme.typography.labelSmall)
+                        Button(onClick = onApplyPlan, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.CheckCircle, null); Spacer(Modifier.width(6.dp)); Text("Apply ${planCuts.size} cuts to timeline") }
                     }
                 }
             }
