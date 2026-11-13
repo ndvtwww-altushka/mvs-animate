@@ -49,24 +49,34 @@ class OpenCodeClientTest {
     }
 
     private fun serve(socket: Socket, handler: (Request) -> Reply) {
-        val input = socket.getInputStream().reader(Charsets.UTF_8)
-        val requestLine = input.readLine() ?: return
+        val input = socket.getInputStream().bufferedReader(Charsets.UTF_8)
+        val requestLine = input.readLine()
+        if (requestLine == null) return
         val parts = requestLine.split(' ')
         if (parts.size < 2) return
         val headers = LinkedHashMap<String, String>()
-        while (true) {
-            val line = input.readLine() ?: break
-            if (line.isEmpty()) break
-            val colon = line.indexOf(':')
-            if (colon > 0) headers[line.substring(0, colon).trim().lowercase()] = line.substring(colon + 1).trim()
+        var headerLine = input.readLine()
+        while (headerLine != null && headerLine.isNotEmpty()) {
+            val colon = headerLine.indexOf(':')
+            if (colon > 0) {
+                headers[headerLine.substring(0, colon).trim().lowercase()] = headerLine.substring(colon + 1).trim()
+            }
+            headerLine = input.readLine()
         }
         val length = headers["content-length"]?.toIntOrNull() ?: 0
         val body = StringBuilder()
-        val buffer = CharArray(1024)
-        while (body.length < length) {
-            val read = input.read(buffer, 0, minOf(buffer.size, length - body.length))
+        var remaining = length
+        val chunk = CharArray(1024)
+        while (remaining > 0) {
+            val want = if (remaining < chunk.size) remaining else chunk.size
+            val read = input.read(chunk, 0, want)
             if (read <= 0) break
-            body.append(buffer, 0, read)
+            var index = 0
+            while (index < read) {
+                body.append(chunk[index])
+                index++
+            }
+            remaining -= read
         }
         val reply = handler(Request(parts[0], parts[1], headers, body.toString()))
         val bytes = reply.body.toByteArray(Charsets.UTF_8)
