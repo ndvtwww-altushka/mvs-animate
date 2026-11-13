@@ -2,7 +2,7 @@
 
 **Android AI edit studio · OpenCode client · Alight Motion XML bridge**
 
-**Source version: 0.2.0** — AI-authored motion curves and validated native effect stacks for both visual and caption layers.
+**Source version: 0.2.3** — OpenCode model picker, explicit per-session model selection, Vision capability labels and quota-aware diagnostics.
 
 MVS Animate is an Android Studio project for building music-synchronised edits from photos, videos, text and motion presets. The app connects to an OpenCode server instead of hard-coding one model provider. It uses local audio DSP to turn music into numeric timing features and can attach up to four selected images to a vision-capable OpenCode model.
 
@@ -30,7 +30,9 @@ The BPM estimate is heuristic, not a studio-grade beat tracker. It can be wrong 
 
 ### OpenCode integration
 - Connects to an existing `opencode serve` HTTP server.
-- Health check, session creation and message submission are implemented.
+- Health check, session creation and message submission are implemented for OpenCode 2.x, with legacy API fallback.
+- The Connections screen loads enabled chat models from `GET /api/model`, reads the default from `/api/model/default`, and displays provider, output/context limits and Vision input capability.
+- The chosen model is explicitly applied to every new session through `POST /api/session/{id}/model`; a server default is used only when the user has not selected a model.
 - Optional HTTP Basic authentication fields are available.
 - The model prompt includes edit brief, timeline metadata and local audio descriptors. It can return source-search queries that open in the Commons browser.
 - Up to four selected still images (max 5 MiB each) are sent as image file parts. The configured model must support vision; otherwise the server/provider may reject or ignore image parts.
@@ -115,8 +117,29 @@ opencode serve --hostname 127.0.0.1 --port 4096
 ```
 
 4. Keep the process alive. In MVS Animate → Settings, use `http://127.0.0.1:4096` and tap **Test**.
-5. In Connections, keep Base URL as `http://127.0.0.1:4096`, use Basic-auth username `opencode` (the app also falls back to this username when the field is left blank), and enter the `server password` printed by `opencode serve`. Tap Test. Do not paste the OpenCode Go API key into the Basic-auth password field; the Go key stays in OpenCode’s own auth store.
-6. Select a vision-capable model through OpenCode for image understanding. If a model is text-only, the app can still send audio descriptors and text, but visual interpretation will be unavailable.
+5. In Connections, keep Base URL as `http://127.0.0.1:4096`, use Basic-auth username `opencode` (the app also falls back to this username when the field is left blank), and enter the `server password` printed by `opencode serve`. Tap **Test / Load models**. Do not paste the OpenCode Go API key into the Basic-auth password field; the Go key stays in OpenCode’s own auth store.
+6. Choose a model in the **AI model** selector. Models marked **Vision** accept source images. The selected model is applied to each newly created MVS session.
+
+### OpenRouter quota / max_tokens errors
+
+If an OpenRouter error says it can afford only about `4266 max_tokens` while the request asks for `256000`, this is a provider quota/declared model output-limit mismatch, not a failed connection. In Connections, inspect the selected model's **Maximum output**. If it is higher than the available quota, add or merge the model limit override in the OpenCode global config (`~/.config/opencode/opencode.json` by default; if you use `opencode.jsonc`, keep its existing JSONC formatting):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "providers": {
+    "openrouter": {
+      "models": {
+        "MODEL_ID_FROM_MVS_MODEL_SELECTOR": {
+          "limit": { "output": 4096 }
+        }
+      }
+    }
+  }
+}
+```
+
+Replace `openrouter` with the provider ID shown in MVS Animate, and replace the model map key with that model's catalog ID. Merge this `providers` fragment into the existing config rather than overwriting other settings. Restart `opencode serve` after editing. A 4096 output cap is a conservative starting point for the 4266-token allowance shown in that error; it does not add credits or guarantee the provider will accept a request if input/context limits are also exceeded.
 
 For a separate device, bind OpenCode only to a trusted network interface, protect it with authentication and prefer HTTPS. Do not expose an unauthenticated OpenCode server to the public internet.
 

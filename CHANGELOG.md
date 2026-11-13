@@ -29,3 +29,14 @@
 - Hardened response polling for direct projected messages and `{ info, parts }` compatible wrappers.
 - Handles successful, failed and interrupted idle states explicitly; avoids waiting for five minutes after an empty completed run.
 - Bumped Android versionCode/versionName to 4 / 0.2.2.
+
+
+## 0.2.3 — Model selection and quota diagnostics
+
+- Added OpenCode 2.x model catalogue loading from `/api/model` and default-model detection from `/api/model/default`.
+- Added in-app model selector with provider ID, context/output limits and image/Vision capability indicators.
+- Applies the chosen provider/model reference to every newly created session using `POST /api/session/{id}/model` before sending the prompt.
+- Automatically selects the server default model when no prior in-app selection exists.
+- Blocks image-based generation when the selected model does not advertise image input, with a clear model-selection hint.
+- Adds specific diagnostics for provider quota / max_tokens errors and explains the `limit.output` config override path.
+- Adds JVM tests for model catalogue parsing, default selection and per-session model assignment.

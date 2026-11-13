@@ -26,7 +26,7 @@ class OpenCodeClientTest {
         val body: String,
     )
 
-    private class Reply(val code: Int, val body: String)
+    private class Reply(val code: Int, val body: String = "")
 
     private suspend fun withServer(handler: (Request) -> Reply, test: suspend (String) -> Unit) {
         val server = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
@@ -193,6 +193,79 @@ class OpenCodeClientTest {
             val status = OpenCodeClient(base).health()
             assertTrue(status.contains("1.9.0"))
             assertTrue(status.contains("legacy API"))
+        }
+    }
+
+    @Test fun loadsModelCatalogueAndDefaultSelection() = runBlocking {
+        withServer({ request ->
+            when (request.path) {
+                "/api/info" -> Reply(200, """{"version":"v2.0.32-android-termux.1"}""")
+                "/api/model" -> Reply(
+                    200,
+                    """{"data":[
+                    {"id":"vision-edit","modelID":"vendor/vision-edit","providerID":"openrouter","name":"Vision Edit","type":"chat","enabled":true,"capabilities":{"input":["text","image"],"output":["text"]},"limit":{"context":32000,"output":4096}},
+                    {"id":"text-only","modelID":"vendor/text-only","providerID":"openrouter","name":"Text Only","type":"chat","enabled":true,"capabilities":{"input":["text"],"output":["text"]},"limit":{"context":64000,"output":8192}},
+                    {"id":"disabled-model","modelID":"off","providerID":"openrouter","name":"Disabled","type":"chat","enabled":false,"capabilities":{"input":["text"],"output":["text"]},"limit":{"context":1000,"output":1000}}
+                ]}"""
+                )
+                "/api/model/default" -> Reply(200, """{"data":{"id":"vision-edit","providerID":"openrouter"}}""")
+                else -> Reply(404, "{}")
+            }
+        }) { base ->
+            val catalog = OpenCodeClient(base).listModels()
+            assertEquals(2, catalog.models.size)
+            val vision = catalog.models.first { it.id == "vision-edit" }
+            assertEquals("openrouter/vision-edit", vision.key)
+            assertEquals("vendor/vision-edit", vision.modelID)
+            assertEquals(4096L, vision.outputLimit)
+            assertTrue(vision.supportsImages)
+            assertEquals("openrouter/vision-edit", catalog.defaultKey)
+            assertTrue(catalog.models.none { it.id == "disabled-model" })
+        }
+    }
+
+    @Test fun selectedModelIsAppliedToNewSessionBeforePrompt() = runBlocking {
+        val modelSelected = AtomicBoolean(false)
+        val promptReceived = AtomicBoolean(false)
+        withServer({ request ->
+            when {
+                request.path == "/api/info" ->
+                    Reply(200, """{"version":"v2.0.32-android-termux.1"}""")
+
+                request.path == "/api/session" && request.method == "POST" ->
+                    Reply(200, """{"data":{"id":"ses_model"}}""")
+
+                request.path == "/api/session/ses_model/model" && request.method == "POST" -> {
+                    val body = JSONObject(request.body)
+                    val model = body.optJSONObject("model") ?: JSONObject()
+                    modelSelected.set(
+                        model.optString("id") == "vision-edit" && model.optString("providerID") == "openrouter"
+                    )
+                    Reply(204)
+                }
+
+                request.path == "/api/session/ses_model/prompt" -> {
+                    promptReceived.set(true)
+                    Reply(200, """{"data":{"id":"user_model"}}""")
+                }
+
+                request.path == "/api/session/ses_model/message" ->
+                    Reply(
+                        200,
+                        """{"data":[{"id":"assistant_model","type":"assistant","time":{"created":1,"completed":2},"content":[{"type":"text","text":"Chosen model response"}],"finish":"stop"}]}"""
+                    )
+
+                else -> Reply(404, "{}")
+            }
+        }) { base ->
+            val selected = OpenCodeClient.ModelInfo(
+                id = "vision-edit", modelID = "vendor/vision-edit", providerID = "openrouter",
+                name = "Vision Edit", outputLimit = 4096, contextLimit = 32000, supportsImages = true,
+            )
+            val response = OpenCodeClient(base).generateEditPlan("Render an edit plan", selectedModel = selected)
+            assertEquals("Chosen model response", response.text)
+            assertTrue(modelSelected.get())
+            assertTrue(promptReceived.get())
         }
     }
 }

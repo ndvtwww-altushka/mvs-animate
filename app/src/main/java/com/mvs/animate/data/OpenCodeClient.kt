@@ -21,6 +21,20 @@ class OpenCodeClient(
     data class ImageAttachment(val fileName: String, val mime: String, val bytes: ByteArray)
     data class AiResponse(val text: String, val sessionId: String, val httpCode: Int)
     data class ServerStatus(val version: String, val api: String)
+    data class ModelInfo(
+        val id: String,
+        val modelID: String,
+        val providerID: String,
+        val name: String,
+        val outputLimit: Long,
+        val contextLimit: Long,
+        val supportsImages: Boolean,
+        val enabled: Boolean = true,
+    ) {
+        val key: String get() = "$providerID/$id"
+        val label: String get() = "$name · $providerID"
+    }
+    data class ModelCatalog(val models: List<ModelInfo>, val defaultKey: String?)
 
     private enum class ApiMode { CURRENT, LEGACY }
     @Volatile private var apiMode: ApiMode? = null
@@ -44,7 +58,7 @@ class OpenCodeClient(
             readTimeout = 30_000
             useCaches = false
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "MVS-Animate/0.2.2")
+            setRequestProperty("User-Agent", "MVS-Animate/0.2.3")
             if (body != null) setRequestProperty("Content-Type", "application/json; charset=utf-8")
             if (password.isNotBlank()) {
                 // OpenCode serve defaults its Basic-auth username to "opencode".
@@ -111,14 +125,70 @@ class OpenCodeClient(
         }
     }
 
+    /** Load enabled chat models exposed by the connected OpenCode instance. */
+    suspend fun listModels(): ModelCatalog = withContext(Dispatchers.IO) {
+        if (apiMode == null) health()
+        if (apiMode != ApiMode.CURRENT) {
+            return@withContext ModelCatalog(emptyList(), null)
+        }
+        val response = requireSuccess(request("/api/model"), "Load OpenCode models")
+        val root = runCatching { JSONObject(response) }.getOrNull()
+        val array = root?.optJSONArray("data")
+            ?: root?.optJSONArray("models")
+            ?: runCatching { JSONArray(response) }.getOrNull()
+            ?: JSONArray()
+        val models = buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                if (!item.optBoolean("enabled", true)) continue
+                val type = item.optString("type")
+                if (type.isNotBlank() && type != "chat") continue
+                val id = item.optString("id").ifBlank { item.optString("modelID") }
+                val modelId = item.optString("modelID").ifBlank { id }
+                val providerId = item.optString("providerID")
+                if (id.isBlank() || providerId.isBlank()) continue
+                val limits = item.optJSONObject("limit") ?: JSONObject()
+                val caps = item.optJSONObject("capabilities") ?: JSONObject()
+                val inputTypes = caps.optJSONArray("input") ?: JSONArray()
+                val supportsImages = (0 until inputTypes.length()).any {
+                    inputTypes.optString(it).equals("image", ignoreCase = true) ||
+                        inputTypes.optString(it).equals("images", ignoreCase = true)
+                }
+                add(
+                    ModelInfo(
+                        id = id,
+                        modelID = modelId,
+                        providerID = providerId,
+                        name = item.optString("name").ifBlank { id },
+                        outputLimit = limits.optLong("output", 0L),
+                        contextLimit = limits.optLong("context", 0L),
+                        supportsImages = supportsImages,
+                        enabled = true,
+                    )
+                )
+            }
+        }.sortedWith(compareBy<ModelInfo> { it.providerID }.thenBy { it.name.lowercase() })
+
+        val defaultKey = runCatching {
+            val defaultBody = requireSuccess(request("/api/model/default"), "Load default OpenCode model")
+            val defaultRoot = JSONObject(defaultBody)
+            val default = defaultRoot.optJSONObject("data") ?: defaultRoot
+            val id = default.optString("id")
+            val provider = default.optString("providerID")
+            if (id.isNotBlank() && provider.isNotBlank()) "$provider/$id" else null
+        }.getOrNull()
+        ModelCatalog(models, defaultKey)
+    }
+
     suspend fun generateEditPlan(
         prompt: String,
         agent: String = "",
         images: List<ImageAttachment> = emptyList(),
+        selectedModel: ModelInfo? = null,
     ): AiResponse = withContext(Dispatchers.IO) {
         if (apiMode == null) health()
         when (apiMode) {
-            ApiMode.CURRENT -> generateCurrentApi(prompt, agent, images)
+            ApiMode.CURRENT -> generateCurrentApi(prompt, agent, images, selectedModel)
             ApiMode.LEGACY -> generateLegacyApi(prompt, agent, images)
             null -> error("OpenCode API version was not detected")
         }
@@ -129,6 +199,7 @@ class OpenCodeClient(
         prompt: String,
         agent: String,
         images: List<ImageAttachment>,
+        selectedModel: ModelInfo?,
     ): AiResponse {
         val createBody = JSONObject().put("title", "MVS Animate edit plan")
         if (agent.isNotBlank()) createBody.put("agent", agent)
@@ -137,6 +208,17 @@ class OpenCodeClient(
         val sessionObject = createJson.optJSONObject("data") ?: createJson
         val sessionId = sessionObject.optString("id").ifBlank { sessionObject.optString("sessionID") }
         require(sessionId.isNotBlank()) { "OpenCode did not return a session id: ${created.take(400)}" }
+
+        if (selectedModel != null) {
+            val modelBody = JSONObject().put(
+                "model",
+                JSONObject().put("id", selectedModel.id).put("providerID", selectedModel.providerID)
+            )
+            requireSuccess(
+                request("/api/session/$sessionId/model", "POST", modelBody),
+                "Select OpenCode model ${selectedModel.key}"
+            )
+        }
 
         val files = JSONArray()
         images.take(4).forEach { image ->
@@ -193,7 +275,7 @@ class OpenCodeClient(
                             message.optString("finish") != "tool-calls"
                         if (message.optString("finish") == "error") {
                             val errorText = message.optJSONObject("error")?.toString().orEmpty()
-                            error("OpenCode model failed: ${errorText.ifBlank { "assistant returned finish=error" }}")
+                            error(formatModelError(errorText.ifBlank { "assistant returned finish=error" }))
                         }
                     }
                     "idle" -> lastIdleOutcome = message.optString("outcome")
@@ -202,7 +284,14 @@ class OpenCodeClient(
             lastAssistantText = assistantTexts.joinToString("\n\n").trim()
 
             if (lastIdleOutcome == "failed") {
-                error("OpenCode agent run failed. Check the OpenCode server log / model credentials.")
+                val idleError = messageArray.run {
+                    (0 until length()).asSequence().mapNotNull { optJSONObject(it) }
+                        .map { it.optJSONObject("info") ?: it }
+                        .firstOrNull { it.optString("type") == "idle" }
+                        ?.optJSONObject("error")?.toString()
+                }.orEmpty()
+                error(if (idleError.isNotBlank()) formatModelError(idleError)
+                    else "OpenCode agent run failed. Check the OpenCode server log / model credentials.")
             }
             if (lastIdleOutcome == "interrupted") {
                 error("OpenCode run was interrupted before it returned a complete edit plan.")
@@ -223,6 +312,18 @@ class OpenCodeClient(
             return AiResponse(lastAssistantText, sessionId, lastHttpCode)
         }
         error("Timed out waiting for OpenCode to finish after 5 minutes. Session: $sessionId")
+    }
+
+    private fun formatModelError(raw: String): String {
+        val flat = raw.replace("\\\"", "\"").replace("\\\\", "\\")
+        val quota = Regex("(?i)(?:requested up to )([0-9,]+)(?: tokens)?.{0,120}?(?:can only afford|afford)\\s+([0-9,]+)").find(flat)
+        if (flat.contains("provider.quota", ignoreCase = true) || flat.contains("requires more credits", ignoreCase = true)) {
+            val requested = quota?.groupValues?.getOrNull(1)?.replace(",", "")
+            val affordable = quota?.groupValues?.getOrNull(2)?.replace(",", "")
+            val numbers = if (requested != null && affordable != null) " Запросил max_tokens=$requested, доступно около $affordable." else ""
+            return "OpenCode подключён, но провайдер отклонил запрос из-за лимита кредитов.$numbers Выбери в Connections модель с меньшим output limit (ориентир — до 4096 токенов) или уменьши limit.output для этой модели в конфиге OpenCode. Это ограничение провайдера, не ошибка подключения."
+        }
+        return "OpenCode model failed: ${raw.take(1200)}"
     }
 
     /** Compatibility with older OpenCode servers that expose /global/health and /session routes. */

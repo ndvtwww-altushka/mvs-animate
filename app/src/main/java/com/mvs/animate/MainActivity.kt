@@ -58,6 +58,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -157,6 +159,7 @@ private enum class AppTab(val label: String) { EDIT("Edit"), AI("AI Studio"), AS
 @Composable
 private fun MvsAnimateApp() {
     val context = LocalContext.current
+    val preferences = remember { context.getSharedPreferences("mvs-animate", android.content.Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
     var tab by remember { mutableStateOf(AppTab.EDIT) }
     var project by remember { mutableStateOf(EditProject()) }
@@ -166,6 +169,9 @@ private fun MvsAnimateApp() {
     var openCodeUser by remember { mutableStateOf("opencode") }
     var openCodePassword by remember { mutableStateOf("") }
     var openCodeAgent by remember { mutableStateOf("") }
+    var openCodeModels by remember { mutableStateOf<List<OpenCodeClient.ModelInfo>>(emptyList()) }
+    var selectedModelKey by remember { mutableStateOf(preferences.getString("opencode-model-key", "").orEmpty()) }
+    var modelCatalogStatus by remember { mutableStateOf("Models not loaded") }
     var connectionStatus by remember { mutableStateOf("Not connected") }
     var isConnecting by remember { mutableStateOf(false) }
     var isGenerating by remember { mutableStateOf(false) }
@@ -419,6 +425,7 @@ private fun MvsAnimateApp() {
                                 val prompt = buildString {
                                     appendLine("You are the editing director AND motion designer for MVS Animate, an Android edit studio with Alight Motion XML interchange.")
                                     appendLine("Create an actionable edit plan and author custom motion recipes, not just effect names. You may inspect attached images if the model supports vision. Do not claim to hear audio: music was processed locally and only numeric/text descriptors are provided.")
+                                    appendLine("OUTPUT BUDGET: keep the answer compact (target at most 2500 output tokens). Return up to 6 well-designed cuts, concise visual descriptions and valid compact JSON only. Do not repeat the brief or explain every decision. Prefer a complete short plan over a huge response.")
                                     appendLine("Task mode: $generationMode. Topic and style: $topic")
                                     appendLine("Project: ${project.title}; canvas ${project.width}x${project.height}; ${project.fps} fps.")
                                     appendLine("Timeline assets:")
@@ -434,10 +441,27 @@ private fun MvsAnimateApp() {
                                     appendLine("AI MUST CREATE EFFECTS, not only name them: for a strong edit, compose 0-3 native Alight Motion effects per recipe when visually useful, and animate their numeric parameters with 2-6 keyframes where supported. Use ONLY these verified effect IDs and exact parameter names/types; do not invent IDs or properties: com.alightcreative.effects.shake2 [mag:float,freq:float,evolution:float,seed:float,angle:float,slack:float,zshake:float]; com.alightcreative.effects.gaussianblur [strength:float]; com.alightcreative.effects.rgbsep [strength:float,angle:float,centerChannel:int,mode:int]; com.alightcreative.effects.darkglow [strength:float,threshold:float,color:color,blend:float,alpha:float]; com.alightcreative.glow [radius:float,alpha:float,hardness:float,color:color,blendMode:int]; com.alightcreative.effects.motionblur4 [tune:float,usePos:bool,useScale:bool,useAngle:bool]; com.alightcreative.effects.textprogress [start:float,end:float,cursor:int,blink:bool]; com.alightcreative.effects.pulseopacity [freq:float,strength:float,phase:float,type:int]; com.alightcreative.effects.swing2 [freq:float,a1:float,a2:float,phase:float,type:int]. Use type=bool as true/false, color as #AARRGGBB. Only numeric float parameters may receive keyframes. The app validates all values against its local registry and drops unknown IDs/parameters. Combine native filter stacks with the transform tracks; e.g. impact = shake2 + motion blur + zoom, dreamy = glow + gentle drift, glitch = RGB split + rotational/position pulse. Avoid stacking every effect on every cut.")
                                     appendLine("Return overview and a short source-search query list. Include a JSON block with schema {\"title\":string,\"cuts\":[{\"atMs\":number,\"durationMs\":number,\"visual\":string,\"text\":string,\"effect\":string,\"animation\":{\"name\":string,\"description\":string,\"effects\":[string],\"tracks\":[{\"property\":string,\"keyframes\":[{\"t\":number,\"v\":number,\"easing\":string}]}],\"nativeEffects\":[{\"id\":string,\"locallyApplied\":true,\"parameters\":[{\"name\":string,\"value\":string,\"keyframes\":[{\"t\":number,\"v\":number,\"easing\":string}]}]}]},\"textAnimation\":{same animation schema, only when text is non-empty}}],\"searchQueries\":[string]}. Do not output hidden chain-of-thought.")
                                 }
-                                updateStage("Model request", StageStatus.RUNNING, "Sending prompt and ${imageAttachments.size} image attachment(s); waiting for model response")
-                                log("POST /session → create edit-plan session")
+                                val catalog = client.listModels()
+                                if (catalog.models.isEmpty()) {
+                                    error("OpenCode did not return enabled chat models. In Termux run /models in the OpenCode TUI, choose a model, then tap Test in MVS Animate.")
+                                }
+                                openCodeModels = catalog.models
+                                val chosenModel = catalog.models.firstOrNull { it.key == selectedModelKey }
+                                    ?: catalog.models.firstOrNull { it.key == catalog.defaultKey }
+                                    ?: catalog.models.first()
+                                selectedModelKey = chosenModel.key
+                                preferences.edit().putString("opencode-model-key", chosenModel.key).apply()
+                                modelCatalogStatus = "${catalog.models.size} model(s) available"
+                                if (imageAttachments.isNotEmpty() && !chosenModel.supportsImages) {
+                                    error("Selected model ${chosenModel.label} does not advertise image input. Choose a model marked Vision in Connections.")
+                                }
+                                if (chosenModel.outputLimit > 4266L) {
+                                    log("WARNING: selected model output limit is ${chosenModel.outputLimit}; previous provider quota only allowed 4266 max_tokens. Set limit.output to 4096 in OpenCode config if requests are rejected.")
+                                }
+                                updateStage("Model request", StageStatus.RUNNING, "Model: ${chosenModel.key} · output limit ${chosenModel.outputLimit.takeIf { it > 0 } ?: "unknown"} · ${imageAttachments.size} image(s)")
+                                log("Using OpenCode model ${chosenModel.key}")
                                 val started = System.currentTimeMillis()
-                                val response = client.generateEditPlan(prompt, openCodeAgent, imageAttachments)
+                                val response = client.generateEditPlan(prompt, openCodeAgent, imageAttachments, chosenModel)
                                 val elapsed = System.currentTimeMillis() - started
                                 planText = response.text
                                 planCuts = PlanParser.parseCuts(response.text)
@@ -550,13 +574,33 @@ private fun MvsAnimateApp() {
                     username = openCodeUser, onUsernameChange = { openCodeUser = it },
                     password = openCodePassword, onPasswordChange = { openCodePassword = it },
                     agent = openCodeAgent, onAgentChange = { openCodeAgent = it },
+                    models = openCodeModels, selectedModelKey = selectedModelKey,
+                    modelStatus = modelCatalogStatus,
+                    onSelectModel = {
+                        selectedModelKey = it
+                        preferences.edit().putString("opencode-model-key", it).apply()
+                    },
                     status = connectionStatus, connecting = isConnecting,
                     onTest = {
                         scope.launch {
                             isConnecting = true
-                            runCatching { OpenCodeClient(openCodeUrl, openCodeUser, openCodePassword).health() }
-                                .onSuccess { connectionStatus = it; log("OpenCode connection test succeeded: $it") }
-                                .onFailure { connectionStatus = "Connection failed"; errorMessage = it.message; log("OpenCode connection failed: ${it.message}") }
+                            runCatching {
+                                val client = OpenCodeClient(openCodeUrl, openCodeUser, openCodePassword)
+                                val health = client.health()
+                                val catalog = client.listModels()
+                                Triple(health, catalog.models, catalog.defaultKey)
+                            }
+                                .onSuccess { (health, models, defaultKey) ->
+                                    connectionStatus = health
+                                    openCodeModels = models
+                                    if (selectedModelKey !in models.map { it.key }) {
+                                        selectedModelKey = models.firstOrNull { it.key == defaultKey }?.key ?: models.firstOrNull()?.key.orEmpty()
+                                        preferences.edit().putString("opencode-model-key", selectedModelKey).apply()
+                                    }
+                                    modelCatalogStatus = if (models.isEmpty()) "No enabled chat models" else "${models.size} model(s) loaded"
+                                    log("OpenCode connected: $health; ${models.size} model(s) loaded; selected=${selectedModelKey.ifBlank { "none" }}")
+                                }
+                                .onFailure { connectionStatus = "Connection failed"; modelCatalogStatus = "Model loading failed"; errorMessage = it.message; log("OpenCode connection failed: ${it.message}") }
                             isConnecting = false
                         }
                     },
@@ -897,12 +941,16 @@ private fun SettingsScreen(
     username: String, onUsernameChange: (String) -> Unit,
     password: String, onPasswordChange: (String) -> Unit,
     agent: String, onAgentChange: (String) -> Unit,
+    models: List<OpenCodeClient.ModelInfo>, selectedModelKey: String,
+    modelStatus: String, onSelectModel: (String) -> Unit,
     status: String, connecting: Boolean, onTest: () -> Unit,
 ) {
+    var modelMenuExpanded by remember { mutableStateOf(false) }
+    val selectedModel = models.firstOrNull { it.key == selectedModelKey }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text("Connections", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("Connect to an OpenCode server you control. The app does not bundle an OpenCode runtime or provider keys. OpenCode 2.x is detected through /api/info; older servers are supported as a fallback.", color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text("Connect to an OpenCode server, load its model catalogue and select the model used for each MVS Animate generation. OpenCode 2.x is detected through /api/info.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(20.dp)) {
@@ -914,12 +962,69 @@ private fun SettingsScreen(
                     OutlinedTextField(value = password, onValueChange = onPasswordChange, modifier = Modifier.fillMaxWidth(), label = { Text("Basic-auth password") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
                     Text("For Termux: username is usually opencode; password is printed as “server password” when opencode serve starts. Keep it private.", color = Muted, style = MaterialTheme.typography.labelSmall)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(status, color = if (status.startsWith("OpenCode")) Mint else Muted, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(status, color = if (status.startsWith("OpenCode")) Mint else Muted, style = MaterialTheme.typography.labelSmall)
+                            Text(modelStatus, color = Muted, style = MaterialTheme.typography.labelSmall)
+                        }
                         Button(onClick = onTest, enabled = !connecting) {
                             if (connecting) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp) else Icon(Icons.Default.Link, null)
-                            Spacer(Modifier.width(5.dp)); Text("Test")
+                            Spacer(Modifier.width(5.dp)); Text("Test / Load models")
                         }
                     }
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(20.dp)) {
+                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.AutoAwesome, null, tint = Accent)
+                        Spacer(Modifier.width(8.dp))
+                        Text("AI model", fontWeight = FontWeight.Bold)
+                    }
+                    Box {
+                        OutlinedButton(
+                            onClick = { modelMenuExpanded = true },
+                            enabled = models.isNotEmpty(),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(selectedModel?.label ?: if (models.isEmpty()) "Tap Test / Load models first" else "Choose model", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
+                            models.forEach { model ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(model.name, fontWeight = FontWeight.SemiBold)
+                                            Text(
+                                                buildString {
+                                                    append(model.providerID)
+                                                    append(" · output ")
+                                                    append(if (model.outputLimit > 0) model.outputLimit.toString() else "unknown")
+                                                    append(if (model.supportsImages) " · Vision" else " · text only")
+                                                },
+                                                color = Muted,
+                                                style = MaterialTheme.typography.labelSmall,
+                                            )
+                                        }
+                                    },
+                                    onClick = { onSelectModel(model.key); modelMenuExpanded = false },
+                                )
+                            }
+                        }
+                    }
+                    if (selectedModel != null) {
+                        Text("Selected: ${selectedModel.key}", color = Mint, style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            "Context: ${if (selectedModel.contextLimit > 0) selectedModel.contextLimit.toString() else "unknown"} · Maximum output: ${if (selectedModel.outputLimit > 0) selectedModel.outputLimit.toString() else "unknown"} tokens · ${if (selectedModel.supportsImages) "Image input supported" else "No advertised image input"}",
+                            color = Muted,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        if (selectedModel.outputLimit > 4266L) {
+                            Text("Quota warning: your previous provider error said it could afford only 4266 max_tokens. This model advertises a larger output limit. Lower providers.${selectedModel.providerID}.models.${selectedModel.id}.limit.output to 4096 in OpenCode config, then restart the server.", color = Color(0xFFFFC875), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Text("The selected model is explicitly applied to every new MVS generation session. Pick a model marked Vision when source photos are attached.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -927,17 +1032,17 @@ private fun SettingsScreen(
             Card(colors = CardDefaults.cardColors(containerColor = Panel2), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Start OpenCode", fontWeight = FontWeight.Bold)
-                    Text("On the same Android phone (for example in Termux), start the server on loopback:", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Text("On this Android phone in Termux, start the server and keep the process running:", color = Muted, style = MaterialTheme.typography.bodySmall)
                     Text("opencode serve --hostname 127.0.0.1 --port 4096", color = Mint, style = MaterialTheme.typography.bodyMedium)
-                    Text("Then keep the server process running, enter the printed server password in Basic-auth password, and tap Test. For another device, use a reachable HTTPS URL. Vision image inspection requires choosing a vision-capable model in OpenCode.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Text("Tap Test / Load models after the server is running. Enter the printed server password in Basic-auth password. Do not paste the OpenCode Go API key here.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("Privacy and process visibility", fontWeight = FontWeight.Bold)
-                    Text("Audio is decoded on-device into RMS energy, onset envelope, tempo estimate and suggested segment. The app sends these descriptors—not raw audio—to OpenCode. The AI screen shows pipeline stages, request latency, session ID and errors, not hidden chain-of-thought.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Text("Quota and privacy", fontWeight = FontWeight.Bold)
+                    Text("A provider quota error is different from a connection error. If the provider says it can afford about 4266 max_tokens, set the selected model's limit.output to 4096 in OpenCode config. Audio is analysed locally; the app sends timing descriptors, not raw music. The AI pipeline shows stages, latency, session ID and errors, not hidden chain-of-thought.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
