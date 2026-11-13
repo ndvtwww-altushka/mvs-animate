@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scene title="MVS Animate starter template" width="1080" height="1920"
+       exportWidth="1080" exportHeight="1920" bgcolor="#FF080A12"
+       totalTime="8000" fps="30" modifiedTime="1794528000000"
+       amver="106" ffver="101" am="com.alightcreative.motion/5.0.0" amplatform="android">
+    <media uri="am-internal:///MVS_SAMPLE_IMAGE.jpg" filename="MVS_SAMPLE_IMAGE.jpg"
+           title="Replace this placeholder" type="image/jpeg" size="0"
+           sig="MVS_SAMPLE_IMAGE" infoUpdated="1794528000000" />
+    <shape id="1" label="Replace with your photo" startTime="0" endTime="8000"
+           fillType="media" s=".rect">
+        <transform>
+            <location value="540.0,960.0" />
+            <scale value="1.0,1.0" />
+            <rotation value="0.0" />
+            <anchor value="0.0,0.0" />
+            <opacity value="1.0" />
+        </transform>
+        <fillImage uri="am-internal:///MVS_SAMPLE_IMAGE.jpg" />
+        <effect id="com.alightcreative.effects.shake2" locallyApplied="true">
+            <property name="angle" type="float" value="0.000000" />
+            <property name="mag" type="float">
+                <kf t="0.0" v="0.0" />
+                <kf t="0.5" v="12.0" e="cubicBezier 0.42 0.0 0.58 1.0" />
+                <kf t="1.0" v="0.0" />
+            </property>
+            <property name="seed" type="float" value="0.08" />
+        </effect>
+    </shape>
+    <text id="2" label="Main title" startTime="500" endTime="3500"
+          fillType="color" size="76.0" font="googlefonts?name=Roboto&amp;weight=700"
+          wrapWidth="940" align="center">
+        <transform>
+            <location value="540.0,1400.0" />
+            <scale value="1.0,1.0" />
+            <rotation value="0.0" />
+            <anchor value="0.0,0.0" />
+            <opacity value="1.0" />
+        </transform>
+        <fillColor value="#FFFFFFFF" />
+        <content>YOUR TITLE</content>
+    </text>
+</scene>
