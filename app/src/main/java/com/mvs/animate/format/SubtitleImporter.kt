@@ -14,7 +14,7 @@ object SubtitleImporter {
             val timeLine = lines[timeLineIndex]
             val times = timeLine.split("-->", limit = 2)
             val start = parseTime(times.getOrNull(0).orEmpty()) ?: return@mapNotNull null
-            val end = parseTime(times.getOrNull(1).orEmpty().substringBefore(' ').trim()) ?: return@mapNotNull null
+            val end = parseTime(times.getOrNull(1).orEmpty().trim().substringBefore(' ')) ?: return@mapNotNull null
             val caption = lines.drop(timeLineIndex + 1).joinToString("\n").replace(Regex("<[^>]+>"), "").trim()
             if (caption.isBlank()) return@mapNotNull null
             EditClip(
