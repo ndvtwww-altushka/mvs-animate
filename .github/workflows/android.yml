@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -76,6 +76,21 @@ jobs:
           name: mvs-animate-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      # Artifact links need a GitHub login; a release asset is a plain APK link.
+      - name: Publish APK to a release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cp app/build/outputs/apk/debug/app-debug.apk mvs-animate-${{ github.run_number }}.apk
+          gh release create "build-${{ github.run_number }}" \
+            "mvs-animate-${{ github.run_number }}.apk" \
+            --repo "${{ github.repository }}" \
+            --title "mvs-animate build ${{ github.run_number }}" \
+            --notes "Debug APK from commit ${{ github.sha }} (run ${{ github.run_id }})." \
+            --latest
 
       - name: Run unit tests
         run: |
