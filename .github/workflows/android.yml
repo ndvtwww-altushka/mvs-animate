@@ -49,9 +49,7 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Run unit tests
-        run: gradle testDebugUnitTest --console=plain
-
+      # The APK comes first: a failing unit test must not hide a buildable app.
       - name: Build debug APK
         run: gradle assembleDebug --console=plain
 
@@ -64,3 +62,24 @@ jobs:
           name: mvs-animate-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Run unit tests
+        run: |
+          set -uo pipefail
+          gradle testDebugUnitTest --console=plain 2>&1 | tee test-run.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # Job logs are not readable from the API, annotations are.
+            grep -E "^(.*> Task .* FAILED|.*e: |.*error:|FAILED|.*tests? completed.*failed)" test-run.log | head -n 8 | while IFS= read -r line; do
+              echo "::error title=unit-test::$line"
+            done || true
+            grep -A2 -E "FAILED" test-run.log | grep -E "AssertionError|Exception|expected" | head -n 4 | while IFS= read -r line; do
+              echo "::error title=unit-test::$line"
+            done || true
+          fi
+          exit "$status"
+
+      - name: Test report
+        if: always()
+        run: |
+          ls -R app/build/reports/tests/testDebugUnitTest 2>/dev/null | head -n 20 || true
