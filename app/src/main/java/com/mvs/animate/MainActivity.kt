@@ -90,6 +90,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.mvs.animate.data.OpenCodeClient
 import com.mvs.animate.data.MotionRecipeFactory
@@ -333,7 +334,7 @@ private fun MvsAnimateApp() {
                 }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("MVS ANIMATE", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, letterSpacing = 1.6f)
+                    Text("MVS ANIMATE", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, letterSpacing = 1.6.sp)
                     Text("AI edit studio · Alight Motion bridge", style = MaterialTheme.typography.labelSmall, color = Muted)
                 }
                 AssistChip(onClick = { tab = AppTab.SETTINGS }, label = { Text(if (connectionStatus.startsWith("OpenCode")) "AI connected" else "Connect AI") }, leadingIcon = {
@@ -958,7 +959,7 @@ private fun Metric(label: String, value: String, modifier: Modifier = Modifier) 
 @Composable
 private fun SectionHeader(title: String, subtitle: String) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(title, color = Accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.2f)
+        Text(title, color = Accent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
         Text(subtitle, color = Muted, style = MaterialTheme.typography.labelSmall)
     }
 }
