@@ -15,23 +15,49 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-      - name: Install Android platform and build tools
-        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      # The runner image already ships the Android SDK; the third-party
+      # setup-android action only added a failure point of its own.
+      - name: Locate Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "SDK=$SDK"
+          ls "$SDK"
+          SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SM" ]; then SM=$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -n 1); fi
+          if [ ! -x "$SM" ]; then SM=$(command -v sdkmanager || true); fi
+          echo "sdkmanager=$SM"
+          echo "SDK=$SDK" >> "$GITHUB_ENV"
+          echo "SDKMANAGER=$SM" >> "$GITHUB_ENV"
+
+      - name: Install platform and build tools
+        run: |
+          set -euo pipefail
+          echo "sdk.dir=$SDK" > local.properties
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+
       - name: Run unit tests
-        run: gradle testDebugUnitTest
+        run: gradle testDebugUnitTest --console=plain
+
       - name: Build debug APK
-        run: gradle assembleDebug
+        run: gradle assembleDebug --console=plain
+
+      - name: Show APK
+        run: ls -l app/build/outputs/apk/debug/
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
