@@ -40,7 +40,7 @@ The BPM estimate is heuristic, not a studio-grade beat tracker. It can be wrong 
 - AI can also design a small native Alight Motion effect stack per visual/caption recipe, independently for the image/video layer and its text caption. Validated native mappings in this build include Shake 2, Gaussian Blur, RGB Split, Dark Glow, Glow, Motion Blur, Text Progress, Pulse Opacity and Swing 2. Where the inspected schema supports it, numeric effect parameters can have their own keyframes. The recipes are data, never executable model-generated scripts.
 - AI-created visual and caption recipes, including their native effects and animated parameters, are saved in the project's reusable AI Motion Library and can be applied to other layers.
 
-The app does not bundle OpenCode, provider API keys, OAuth sessions or model weights. Configure providers and authenticate with OpenCode itself first.
+The app does not bundle OpenCode, provider API keys, OAuth sessions or model weights. Configure providers and authenticate with OpenCode itself first. The client detects the current OpenCode API using `GET /api/info`, creates sessions with `POST /api/session`, submits prompts through `POST /api/session/{id}/prompt`, and polls `GET /api/session/{id}/message` until a completed assistant response or idle status arrives. It accepts both the projected `{type, content}` message shape and compatible `{info, parts}` wrappers. Older servers using `/global/health` and the legacy `/session` routes remain supported as a fallback.
 
 ### Source browser
 - Wikimedia Commons search via the public MediaWiki API.
@@ -115,7 +115,8 @@ opencode serve --hostname 127.0.0.1 --port 4096
 ```
 
 4. Keep the process alive. In MVS Animate → Settings, use `http://127.0.0.1:4096` and tap **Test**.
-5. Select a vision-capable model through OpenCode for image understanding. If a model is text-only, the app can still pass file metadata and audio descriptors, but visual interpretation will be unavailable.
+5. In Connections, keep Base URL as `http://127.0.0.1:4096`, use Basic-auth username `opencode` (the app also falls back to this username when the field is left blank), and enter the `server password` printed by `opencode serve`. Tap Test. Do not paste the OpenCode Go API key into the Basic-auth password field; the Go key stays in OpenCode’s own auth store.
+6. Select a vision-capable model through OpenCode for image understanding. If a model is text-only, the app can still send audio descriptors and text, but visual interpretation will be unavailable.
 
 For a separate device, bind OpenCode only to a trusted network interface, protect it with authentication and prefer HTTPS. Do not expose an unauthenticated OpenCode server to the public internet.
 
@@ -129,7 +130,7 @@ For a separate device, bind OpenCode only to a trusted network interface, protec
 ```text
 app/src/main/java/com/mvs/animate/
   MainActivity.kt                 Compose UI, timeline, AI workflow and exports
-  data/OpenCodeClient.kt          OpenCode HTTP API integration
+  data/OpenCodeClient.kt          OpenCode v2 + legacy HTTP API integration
   data/MotionRecipeFactory.kt     Built-in editable motion recipes
   data/PlanParser.kt              Structured AI plan extraction
   data/ProjectCodec.kt            Native MVS project manifest

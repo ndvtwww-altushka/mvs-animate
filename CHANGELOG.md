@@ -9,3 +9,23 @@
 - Updated the OpenCode edit-director prompt and sample AI plan to request concrete effect stacks and animated parameters, not just effect names.
 - Added tests for native-effect project round-trip and structured AI plan parsing.
 - Clarified that unsupported Alight Motion effects and `.wj` binary decoding are not claimed as supported.
+
+
+## 0.2.1 — OpenCode API compatibility fix
+
+- Detect current OpenCode servers with `GET /api/info`; no longer treat `/global/health` as the only health endpoint.
+- Added OpenCode v2 session creation (`POST /api/session`), optional agent assignment at session creation, and prompt submission (`POST /api/session/{id}/prompt`).
+- Added polling of `/api/session/{id}/message` to return the completed assistant text after asynchronous prompt execution.
+- Added v2 image attachments as inline `data:` URIs, compatible with OpenCode's documented attachment handling.
+- Kept the legacy `/global/health`, `/session`, and `/message` path as an automatic fallback.
+- Uses Java Base64 so the HTTP client can be exercised in local JVM tests.
+- Default Basic-auth username is `opencode`; the user enters the server password printed by `opencode serve`.
+- Added OpenCode HTTP client tests for v2 health, authenticated requests, image prompt submission, finished-message retrieval, and legacy fallback.
+
+
+## 0.2.2 — OpenCode Android Termux compatibility
+
+- Corrected OpenCode 2.x API health detection and documented the exact tested server version family (`/api/info`).
+- Hardened response polling for direct projected messages and `{ info, parts }` compatible wrappers.
+- Handles successful, failed and interrupted idle states explicitly; avoids waiting for five minutes after an empty completed run.
+- Bumped Android versionCode/versionName to 4 / 0.2.2.

@@ -163,7 +163,7 @@ private fun MvsAnimateApp() {
     var selectedClipId by remember { mutableStateOf<String?>(null) }
     var topic by remember { mutableStateOf("anime velocity edit, high impact cuts, clean typography") }
     var openCodeUrl by remember { mutableStateOf("http://127.0.0.1:4096") }
-    var openCodeUser by remember { mutableStateOf("") }
+    var openCodeUser by remember { mutableStateOf("opencode") }
     var openCodePassword by remember { mutableStateOf("") }
     var openCodeAgent by remember { mutableStateOf("") }
     var connectionStatus by remember { mutableStateOf("Not connected") }
@@ -902,7 +902,7 @@ private fun SettingsScreen(
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Text("Connections", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("Connect to an OpenCode server you control. The app does not bundle an OpenCode runtime or provider keys.", color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text("Connect to an OpenCode server you control. The app does not bundle an OpenCode runtime or provider keys. OpenCode 2.x is detected through /api/info; older servers are supported as a fallback.", color = Muted, style = MaterialTheme.typography.bodySmall)
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(20.dp)) {
@@ -910,8 +910,9 @@ private fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Code, null, tint = Accent); Spacer(Modifier.width(8.dp)); Text("OpenCode server", fontWeight = FontWeight.Bold) }
                     OutlinedTextField(value = url, onValueChange = onUrlChange, modifier = Modifier.fillMaxWidth(), label = { Text("Base URL") }, singleLine = true)
                     OutlinedTextField(value = agent, onValueChange = onAgentChange, modifier = Modifier.fillMaxWidth(), label = { Text("Agent (optional, e.g. mvs-edit-director)") }, singleLine = true)
-                    OutlinedTextField(value = username, onValueChange = onUsernameChange, modifier = Modifier.fillMaxWidth(), label = { Text("Basic-auth username (optional)") }, singleLine = true)
-                    OutlinedTextField(value = password, onValueChange = onPasswordChange, modifier = Modifier.fillMaxWidth(), label = { Text("Basic-auth password (optional)") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+                    OutlinedTextField(value = username, onValueChange = onUsernameChange, modifier = Modifier.fillMaxWidth(), label = { Text("Basic-auth username (default: opencode)") }, singleLine = true)
+                    OutlinedTextField(value = password, onValueChange = onPasswordChange, modifier = Modifier.fillMaxWidth(), label = { Text("Basic-auth password") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+                    Text("For Termux: username is usually opencode; password is printed as “server password” when opencode serve starts. Keep it private.", color = Muted, style = MaterialTheme.typography.labelSmall)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(status, color = if (status.startsWith("OpenCode")) Mint else Muted, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
                         Button(onClick = onTest, enabled = !connecting) {
@@ -928,7 +929,7 @@ private fun SettingsScreen(
                     Text("Start OpenCode", fontWeight = FontWeight.Bold)
                     Text("On the same Android phone (for example in Termux), start the server on loopback:", color = Muted, style = MaterialTheme.typography.bodySmall)
                     Text("opencode serve --hostname 127.0.0.1 --port 4096", color = Mint, style = MaterialTheme.typography.bodyMedium)
-                    Text("Then keep the server process running and tap Test. For another device, use a reachable HTTPS URL. Vision image inspection requires choosing a vision-capable model in OpenCode.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Text("Then keep the server process running, enter the printed server password in Basic-auth password, and tap Test. For another device, use a reachable HTTPS URL. Vision image inspection requires choosing a vision-capable model in OpenCode.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
