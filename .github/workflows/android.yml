@@ -56,11 +56,9 @@ jobs:
           gradle assembleDebug --console=plain 2>&1 | tee build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            # Job logs are not readable from the API, annotations are.
-            grep -E "^e: |^w: .*error|error:|^FAILURE:|What went wrong|Execution failed" build.log | head -n 10 | while IFS= read -r line; do
-              echo "::error title=assembleDebug::$line"
-            done || true
-            grep -A4 "What went wrong" build.log | head -n 8 | while IFS= read -r line; do
+            # Job logs are not readable from the API, annotations are. Nothing is filtered:
+            # pattern matching already missed one real failure.
+            tail -n 25 build.log | sed "s/::/--/g" | while IFS= read -r line; do
               echo "::error title=assembleDebug::$line"
             done || true
           fi
