@@ -78,7 +78,7 @@ class OpenCodeClientTest {
             }
             remaining -= read
         }
-        val reply = handler(Request(parts[0], parts[1], headers, body.toString()))
+        val reply = handler(Request(parts[0], parts[1].substringBefore('?'), headers, body.toString()))
         val bytes = reply.body.toByteArray(Charsets.UTF_8)
         val head = "HTTP/1.1 ${reply.code} X\r\n" +
             "Content-Type: application/json; charset=utf-8\r\n" +
