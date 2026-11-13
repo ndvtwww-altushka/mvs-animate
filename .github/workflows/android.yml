@@ -52,6 +52,9 @@ jobs:
       # The APK comes first: a failing unit test must not hide a buildable app.
       - name: Build debug APK
         run: |
+          # GitHub runs the script with -e, which aborted the pipeline before the
+          # failure could be reported.
+          set +e
           set -uo pipefail
           gradle assembleDebug --console=plain 2>&1 | tee build.log
           status=${PIPESTATUS[0]}
@@ -76,6 +79,7 @@ jobs:
 
       - name: Run unit tests
         run: |
+          set +e
           set -uo pipefail
           gradle testDebugUnitTest --console=plain 2>&1 | tee test-run.log
           status=${PIPESTATUS[0]}
